@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// TreeContext mimics the Python class that stores context
-// about source code lines, parsing, scopes, and line-of-interest management.
+// TreeContext stores context about source code lines, parsing, scopes, and line-of-interest management.
 type TreeContext struct {
 	filename                 string
+	source                   []byte
 	color                    bool
 	verbose                  bool
 	lineNumber               bool
@@ -25,84 +27,54 @@ type TreeContext struct {
 	numLines                 int
 	outputLines              map[int]string
 	scopes                   []map[int]struct{}
-	header                   [][]int   // each element: [startLine, endLine]
-	nodes                    [][]*Node // tracks parse-tree nodes by start line
+	header                   [][]int          // each element: [startLine, endLine]
+	nodes                    [][]*sitter.Node // tracks parse-tree nodes by start line
 	showLines                map[int]struct{}
 	linesOfInterest          map[int]struct{}
 	doneParentScopes         map[int]struct{}
 }
 
-// Node is a simplified stand-in for tree-sitter nodes in Go.
-// In a real environment, you would replace this with the actual tree-sitter struct or wrapper.
-type Node struct {
-	Type       string
-	Text       string
-	StartPoint [2]int // [line, column]
-	EndPoint   [2]int // [line, column]
-	Children   []*Node
-	IsNamed    bool
-}
-
-// filenameToLang is a placeholder for your logic of mapping file names to a language
-func filenameToLang(filename string) (string, error) {
-	// For example, return "go" for .go files, "python" for .py, etc.
-	// Return an error if you can’t determine the language.
-	if strings.HasSuffix(filename, ".py") {
-		return "python", nil
-	} else if strings.HasSuffix(filename, ".go") {
-		return "go", nil
-	}
-	return "", fmt.Errorf("Unknown language for %s", filename)
-}
-
-// getParser is a placeholder for returning a parser based on language.
-// Replace with real usage of a Go tree-sitter or relevant parser.
-func getParser(lang string) (*Node, error) {
-	// Here, we just create a dummy root node.
-	// In reality, you’d parse the code with tree-sitter or a suitable parser.
-	root := &Node{
-		Type:       "root",
-		Text:       "root node text",
-		StartPoint: [2]int{0, 0},
-		EndPoint:   [2]int{0, 0},
-		IsNamed:    true,
-	}
-	return root, nil
+type TreeContextOptions struct {
+	Color                    bool
+	Verbose                  bool
+	ShowLineNumber           bool
+	ShowParentContext        bool
+	ShowChildContext         bool
+	ShowLastLine             bool
+	MarginPadding            int
+	MarkLinesOfInterest      bool
+	HeaderMax                int
+	ShowTopOfFileParentScope bool
+	LinesOfInterestPadding   int
 }
 
 // NewTreeContext is the Go-equivalent constructor for TreeContext.
-func NewTreeContext(
-	filename string,
-	code string,
-	color bool,
-	verbose bool,
-	lineNumber bool,
-	parentContext bool,
-	childContext bool,
-	lastLine bool,
-	margin int,
-	markLOIs bool,
-	headerMax int,
-	showTopOfFileParentScope bool,
-	loiPad int,
-) (*TreeContext, error) {
-
-	// Map filename -> language
-	lang, err := filenameToLang(filename)
+func NewTreeContext(filename string, source []byte, options TreeContextOptions) (*TreeContext, error) {
+	// Get the language from the filename
+	lang, err := getLanguageFromFileName(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	// In Python, `get_parser(lang)` returns a specialized parser. We replicate that here:
-	rootNode, err := getParser(lang)
-	if err != nil {
-		return nil, err
+	// Return an error if the language is not supported
+	if lang == nil {
+		return nil, fmt.Errorf("unrecognized or unsupported file type (%s)", filename)
 	}
+
+	// Initialize Tree-sitter parser
+	parser := sitter.NewParser()
+	parser.SetLanguage(lang) // Change to appropriate language parser
+
+	// Parse the source code
+	tree := parser.Parse(source, nil)
+
+	// Get the root node
+	rootNode := tree.RootNode()
 
 	// Split lines
-	lines := strings.Split(code, "\n")
+	lines := strings.Split(string(source), "\n")
 	numLines := len(lines)
-	if len(code) > 0 && code[len(code)-1] == '\n' {
+	if len(source) > 0 && source[len(source)-1] == '\n' {
 		// Adjust if there's a trailing newline, so the python version's "len + 1" logic is matched
 		numLines += 0
 	}
@@ -110,28 +82,29 @@ func NewTreeContext(
 	// Initialize scopes and headers
 	scopes := make([]map[int]struct{}, numLines+1) // +1 to mimic python’s len+1 usage
 	header := make([][]int, numLines+1)
-	nodes := make([][]*Node, numLines+1)
+	nodes := make([][]*sitter.Node, numLines+1)
 	for i := 0; i <= numLines; i++ {
 		scopes[i] = make(map[int]struct{})
 		header[i] = []int{0, 0}
-		nodes[i] = []*Node{}
+		nodes[i] = []*sitter.Node{}
 	}
 
 	tc := &TreeContext{
 		filename:                 filename,
-		color:                    color,
-		verbose:                  verbose,
-		lineNumber:               lineNumber,
-		parentContext:            parentContext,
-		childContext:             childContext,
-		lastLine:                 lastLine,
-		margin:                   margin,
-		markLOIs:                 markLOIs,
-		headerMax:                headerMax,
-		loiPad:                   loiPad,
-		showTopOfFileParentScope: showTopOfFileParentScope,
+		source:                   source,
+		color:                    options.Color,
+		verbose:                  options.Verbose,
+		lineNumber:               options.ShowLineNumber,
+		parentContext:            options.ShowParentContext,
+		childContext:             options.ShowChildContext,
+		lastLine:                 options.ShowLastLine,
+		margin:                   options.MarginPadding,
+		markLOIs:                 options.MarkLinesOfInterest,
+		headerMax:                options.HeaderMax,
+		loiPad:                   options.LinesOfInterestPadding,
+		showTopOfFileParentScope: options.ShowTopOfFileParentScope,
 		lines:                    lines,
-		numLines:                 numLines + 1, // python was len(lines) + 1
+		numLines:                 numLines + 1,
 		outputLines:              make(map[int]string),
 		scopes:                   scopes,
 		header:                   header,
@@ -150,10 +123,11 @@ func NewTreeContext(
 	return tc, nil
 }
 
-// postWalkProcessing tries to replicate the logic in the Python constructor after tree walk.
+// postWalkProcessing sets header ranges and optionally prints scopes.
 func (tc *TreeContext) postWalkProcessing() {
-	// We replicate the Python verbose printing and setting header ranges
+	// print and set header ranges
 	var scopeWidth int
+
 	if tc.verbose {
 		// find the maximum width for printing scopes
 		for i := 0; i < tc.numLines-1; i++ {
@@ -304,7 +278,7 @@ func (tc *TreeContext) addChildContext(i int) {
 	}
 
 	// gather all children
-	children := []*Node{}
+	children := []*sitter.Node{}
 	for _, node := range tc.nodes[i] {
 		children = append(children, tc.findAllChildren(node)...)
 	}
@@ -327,16 +301,18 @@ func (tc *TreeContext) addChildContext(i int) {
 		if len(tc.showLines) > currentlyShowing+computedMax {
 			break
 		}
-		childStart := child.StartPoint[0]
-		tc.addParentScopes(childStart)
+		childStart := child.StartPosition().Row
+		tc.addParentScopes(int(childStart))
 	}
 }
 
 // findAllChildren gathers all descendants (recursive)
-func (tc *TreeContext) findAllChildren(node *Node) []*Node {
-	out := []*Node{node}
-	for _, child := range node.Children {
-		out = append(out, tc.findAllChildren(child)...)
+func (tc *TreeContext) findAllChildren(node *sitter.Node) []*sitter.Node {
+	out := []*sitter.Node{node}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if child := node.NamedChild(i); child != nil {
+			out = append(out, tc.findAllChildren(child)...)
+		}
 	}
 	return out
 }
@@ -348,8 +324,8 @@ func (tc *TreeContext) getLastLineOfScope(i int) int {
 	}
 	lastLine := 0
 	for _, node := range tc.nodes[i] {
-		if node.EndPoint[0] > lastLine {
-			lastLine = node.EndPoint[0]
+		if int(node.EndPosition().Row) > lastLine {
+			lastLine = int(node.EndPosition().Row)
 		}
 	}
 	return lastLine
@@ -388,63 +364,75 @@ func (tc *TreeContext) closeSmallGaps() {
 	tc.showLines = closedShow
 }
 
-// Format outputs the final lines, replicating the logic in the Python method.
+// Format outputs the final lines
 func (tc *TreeContext) Format() string {
+	// If there’s nothing to show, bail early
 	if len(tc.showLines) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 
-	// Optional reset color
+	// Optional color reset at the start
 	if tc.color {
 		sb.WriteString("\033[0m\n")
 	}
 
-	dots := false
-	if _, present := tc.showLines[0]; present {
-		dots = true
-	}
+	// `printEllipsis` tracks whether we've shown a line since
+	// the last time we printed an ellipsis. Initially false.
+	var printEllipsis bool
 
 	for i, line := range tc.lines {
-		_, shouldShow := tc.showLines[i]
-		if !shouldShow {
-			if dots {
-				// We print the "⋮..." line once as an omitted block, like Python does
-				if tc.lineNumber {
-					sb.WriteString("...⋮...\n")
-				} else {
-					sb.WriteString("⋮...\n")
-				}
-				dots = false
+		if _, shouldShow := tc.showLines[i]; !shouldShow {
+			// Print ellipsis only once after the last shown line
+			if printEllipsis {
+				sb.WriteString(tc.ellipsisLine())
+				printEllipsis = false
 			}
 			continue
 		}
 
-		// line-of-interest marker
-		spacer := "│"
-		if _, isLOI := tc.linesOfInterest[i]; isLOI && tc.markLOIs {
-			spacer = "█"
-			if tc.color {
-				spacer = "\033[31m█\033[0m"
-			}
-		}
-
-		// use outputLines if we have highlighted version
-		oline, ok := tc.outputLines[i]
-		if !ok {
-			oline = line
-		}
-
+		// Show the line
+		spacer := tc.lineOfInterestSpacer(i)
+		oline := tc.highlightedOrOriginalLine(i, line)
 		if tc.lineNumber {
-			sb.WriteString(fmt.Sprintf("%3d%s%s\n", i+1, spacer, oline))
+			fmt.Fprintf(&sb, "%3d%s%s\n", i+1, spacer, oline)
 		} else {
-			sb.WriteString(fmt.Sprintf("%s%s\n", spacer, oline))
+			fmt.Fprintf(&sb, "%s%s\n", spacer, oline)
 		}
-		dots = true
+
+		// Next time we skip lines, we may print an ellipsis
+		printEllipsis = true
 	}
 
 	return sb.String()
+}
+
+// ellipsisLine returns "...⋮...\n" if lineNumber is on, otherwise "⋮...\n"
+func (tc *TreeContext) ellipsisLine() string {
+	if tc.lineNumber {
+		return "...⋮...\n"
+	}
+	return "⋮...\n"
+}
+
+// lineOfInterestSpacer returns "│" or "█" (with color if needed)
+func (tc *TreeContext) lineOfInterestSpacer(i int) string {
+	if _, isLOI := tc.linesOfInterest[i]; isLOI && tc.markLOIs {
+		if tc.color {
+			return "\033[31m█\033[0m"
+		}
+		return "█"
+	}
+	return "│"
+}
+
+// highlightedOrOriginalLine uses the highlighted version if present
+func (tc *TreeContext) highlightedOrOriginalLine(i int, original string) string {
+	if hl, ok := tc.outputLines[i]; ok {
+		return hl
+	}
+	return original
 }
 
 // addParentScopes recursively shows lines for parent scopes
@@ -478,9 +466,9 @@ func (tc *TreeContext) addParentScopes(i int) {
 }
 
 // walkTree populates scopes, headers, etc.
-func (tc *TreeContext) walkTree(node *Node, depth int) (int, int) {
-	startLine := node.StartPoint[0]
-	endLine := node.EndPoint[0]
+func (tc *TreeContext) walkTree(node *sitter.Node, depth int) (int, int) {
+	startLine := int(node.StartPosition().Row)
+	endLine := int(node.EndPosition().Row)
 	size := endLine - startLine
 
 	if startLine < 0 || startLine >= len(tc.nodes) {
@@ -488,23 +476,22 @@ func (tc *TreeContext) walkTree(node *Node, depth int) (int, int) {
 	}
 	tc.nodes[startLine] = append(tc.nodes[startLine], node)
 
-	if tc.verbose && node.IsNamed {
-		// mimic the Python debugging prints
-		textLine := strings.Split(node.Text, "\n")[0]
-		var codeLine string
-		if startLine < len(tc.lines) {
-			codeLine = tc.lines[startLine]
-		}
-		fmt.Printf("%s %s %d-%d=%d %s %s\n",
-			strings.Repeat("   ", depth),
-			node.Type,
-			startLine,
-			endLine,
-			size+1,
-			textLine,
-			codeLine,
-		)
-	}
+	// if tc.verbose && node.IsNamed() {
+	// 	textLine := strings.Split(node.Utf8Text(tc.source), "\n")[0]
+	// 	var codeLine string
+	// 	if startLine < len(tc.lines) {
+	// 		codeLine = tc.lines[startLine]
+	// 	}
+	// 	fmt.Printf("%s %s %d-%d=%d %s %s\n",
+	// 		strings.Repeat("   ", depth),
+	// 		node.Kind(),
+	// 		startLine,
+	// 		endLine,
+	// 		size+1,
+	// 		textLine,
+	// 		codeLine,
+	// 	)
+	// }
 
 	if size > 0 {
 		if startLine < len(tc.header) {
@@ -518,9 +505,12 @@ func (tc *TreeContext) walkTree(node *Node, depth int) (int, int) {
 		tc.scopes[i][startLine] = struct{}{}
 	}
 
-	for _, child := range node.Children {
-		tc.walkTree(child, depth+1)
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if child := node.NamedChild(i); child != nil {
+			tc.walkTree(child, depth+1)
+		}
 	}
+
 	return startLine, endLine
 }
 
@@ -544,11 +534,11 @@ func mapKeysSorted(m map[int]struct{}) []int {
 }
 
 // sortNodesBySize sorts nodes by (EndLine-StartLine) descending.
-func sortNodesBySize(nodes []*Node) {
+func sortNodesBySize(nodes []*sitter.Node) {
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
-			sizeI := nodes[i].EndPoint[0] - nodes[i].StartPoint[0]
-			sizeJ := nodes[j].EndPoint[0] - nodes[j].StartPoint[0]
+			sizeI := int(nodes[i].EndPosition().Row) - int(nodes[i].StartPosition().Row)
+			sizeJ := int(nodes[j].EndPosition().Row) - int(nodes[j].StartPosition().Row)
 			if sizeJ > sizeI {
 				nodes[i], nodes[j] = nodes[j], nodes[i]
 			}

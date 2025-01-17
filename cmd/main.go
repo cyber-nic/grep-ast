@@ -32,21 +32,20 @@ func main() {
 		panic(fmt.Errorf("Error reading file: %v", err))
 	}
 
-	tc, err := goast.NewTreeContext(
-		path,
-		string(code),
-		true, // color
-		true, // verbose
-		true, // lineNumber
-		true, // parentContext
-		true, // childContext
-		true, // lastLine
-		3,    // margin
-		true, // markLOIs
-		10,   // headerMax
-		true, // showTopOfFileParentScope
-		1,    // loiPad
-	)
+	tc, err := goast.NewTreeContext(path, code, goast.TreeContextOptions{
+		Color:                    true,
+		Verbose:                  true,
+		ShowLineNumber:           true,
+		ShowParentContext:        true,
+		ShowChildContext:         true,
+		ShowLastLine:             false,
+		MarginPadding:            3,
+		MarkLinesOfInterest:      true,
+		HeaderMax:                10,
+		ShowTopOfFileParentScope: true,
+		LinesOfInterestPadding:   1,
+	})
+
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -57,9 +56,11 @@ func main() {
 	tc.AddLinesOfInterest(found)
 
 	// Add context
-	// tc.AddContext()
+	tc.AddContext()
 
 	// Format output
 	out := tc.Format()
+
+	// Print output
 	fmt.Println(out)
 }
