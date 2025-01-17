@@ -8,25 +8,58 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <file/directory path>\n", os.Args[0])
-		os.Exit(1)
-	}
+	// if len(os.Args) != 2 {
+	// 	fmt.Fprintf(os.Stderr, "Usage: %s <file/directory path>\n", os.Args[0])
+	// 	os.Exit(1)
+	// }
 
-	path := os.Args[1]
-	_, err := os.Stat(path)
+	// path := os.Args[1]
+
+	path := "cmd/main.go"
+	info, err := os.Stat(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error accessing path: %v\n", err)
-		os.Exit(1)
+		panic(fmt.Errorf("Error accessing path: %v", err))
 	}
 
-	tree, err := goast.NewTreeContext(path)
+	if info.IsDir() {
+		fmt.Println("not accepting dirs at this time")
+		return
+	}
+
+	// read file content
+	code, err := os.ReadFile(path)
 	if err != nil {
-		panic(fmt.Errorf("failed to create tree context for %s: %v", path, err))
+		panic(fmt.Errorf("Error reading file: %v", err))
 	}
 
-	fmt.Println(tree.Path)
-	for _, node := range tree.Nodes {
-		fmt.Println(node.Path())
+	tc, err := goast.NewTreeContext(
+		path,
+		string(code),
+		true, // color
+		true, // verbose
+		true, // lineNumber
+		true, // parentContext
+		true, // childContext
+		true, // lastLine
+		3,    // margin
+		true, // markLOIs
+		10,   // headerMax
+		true, // showTopOfFileParentScope
+		1,    // loiPad
+	)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
 	}
+
+	// Example: grep for "main"
+	found := tc.Grep("main", false)
+	tc.AddLinesOfInterest(found)
+
+	// Add context
+	// tc.AddContext()
+
+	// Format output
+	out := tc.Format()
+	fmt.Println(out)
 }
