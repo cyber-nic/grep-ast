@@ -1,4 +1,4 @@
-module github.com/cyber-nic/grep-ast-go
+module github.com/cyber-nic/grep-ast
 
 go 1.23.4
 
