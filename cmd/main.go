@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	grepast "github.com/cyber-nic/grep-ast-go"
+	grepast "github.com/cyber-nic/grep-ast"
 )
 
 func main() {
