@@ -90,8 +90,8 @@ func getLanguageFromFileName(path string) (*sitter.Language, error) {
 	return nil, fmt.Errorf("unrecognized or unsupported file type (%s): %s", path, ext)
 }
 
-// loadIgnoreASTFile reads the ignore file and returns the list of patterns to ignore
-func loadIgnoreASTFile(ignoreFilePath string) ([]string, error) {
+// loadIgnoreList reads the ignore file and returns the list of patterns to ignore
+func loadIgnoreList(ignoreFilePath string) ([]string, error) {
 	ignoreList := make(map[string]struct{})
 
 	file, err := os.Open(ignoreFilePath)
@@ -123,7 +123,7 @@ func loadIgnoreASTFile(ignoreFilePath string) ([]string, error) {
 }
 
 // Default ignore patterns
-var defaultIgnorePatterns = map[string]bool{
+var DefaultIgnorePatterns = map[string]bool{
 	".astignore":    true,
 	".git/":         true,
 	".gitignore":    true,
@@ -136,7 +136,7 @@ var defaultIgnorePatterns = map[string]bool{
 	".*":            true,
 }
 
-func matchIgnorePattern(value string, ignorePatterns map[string]bool) bool {
+func MatchIgnorePattern(value string, ignorePatterns map[string]bool) bool {
 	for pattern, _ := range ignorePatterns {
 		if strings.HasSuffix(pattern, "/") {
 			// Directory pattern: check if name matches or is within the directory

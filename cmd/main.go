@@ -3,38 +3,75 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	goast "github.com/cyber-nic/grep-ast-go"
 )
 
 func main() {
-	// if len(os.Args) != 2 {
-	// 	fmt.Fprintf(os.Stderr, "Usage: %s <file/directory path>\n", os.Args[0])
-	// 	os.Exit(1)
-	// }
-
-	// path := os.Args[1]
-
-	path := "cmd/main.go"
-	info, err := os.Stat(path)
-	if err != nil {
-		panic(fmt.Errorf("Error accessing path: %v", err))
-	}
-
-	if info.IsDir() {
-		fmt.Println("not accepting dirs at this time")
+	// Check for the correct number of arguments
+	if len(os.Args) < 2 || len(os.Args) > 3 {
+		fmt.Fprintf(os.Stderr, "Usage: grep-ast search_pattern <file/directory path>\n")
 		return
 	}
 
-	// read file content
-	code, err := os.ReadFile(path)
-	if err != nil {
-		panic(fmt.Errorf("Error reading file: %v", err))
+	rootPath := "."
+	var err error
+
+	// Get the search query
+	searchQuery := os.Args[1]
+
+	// Get the root path
+	if len(os.Args) == 2 {
+		rootPath, err = os.Getwd()
+		if err != nil {
+			fmt.Printf("error getting current working directory: %v", err)
+			os.Exit(1)
+		}
+	} else if len(os.Args) == 3 {
+		rootPath = os.Args[2]
 	}
 
-	tc, err := goast.NewTreeContext(path, code, goast.TreeContextOptions{
+	// Walk the directory
+	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		// Skip errors
+		if err != nil {
+			return err
+		}
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+		// Skip files that match the ignore patterns
+		if goast.MatchIgnorePattern(path, goast.DefaultIgnorePatterns) {
+			return nil
+		}
+
+		rel, err := filepath.Rel(rootPath, path)
+		if err != nil {
+			return nil
+		}
+
+		parseAndGrep(rel, searchQuery)
+		return nil
+	})
+
+	if err != nil {
+		panic(fmt.Errorf("Error walking the path: %v", err))
+	}
+
+}
+
+func parseAndGrep(filePath, search string) error {
+	source, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("error reading file %s: %v", filePath, err)
+	}
+
+	// Attempt to create a TreeContext. Non-Go files may fail.
+	tc, err := goast.NewTreeContext(filePath, source, goast.TreeContextOptions{
 		Color:                    true,
-		Verbose:                  true,
+		Verbose:                  false,
 		ShowLineNumber:           true,
 		ShowParentContext:        true,
 		ShowChildContext:         true,
@@ -45,22 +82,18 @@ func main() {
 		ShowTopOfFileParentScope: true,
 		LinesOfInterestPadding:   1,
 	})
-
 	if err != nil {
-		fmt.Println("Error:", err)
-		return
+		return fmt.Errorf("error parsing file %s: %v", filePath, err)
 	}
 
-	// Example: grep for "main"
-	found := tc.Grep("main", false)
+	found := tc.Grep(search, false)
 	tc.AddLinesOfInterest(found)
-
-	// Add context
 	tc.AddContext()
 
-	// Format output
+	// Format and print the output
 	out := tc.Format()
 
-	// Print output
-	fmt.Println(out)
+	fmt.Printf("\n%s:%s\n", filePath, out)
+
+	return nil
 }
