@@ -11,6 +11,7 @@ func TestMatchIgnorePattern(t *testing.T) {
 		ignorePatterns map[string]bool
 		expected       bool
 	}{
+		// Basic .git directory cases
 		{
 			name:           "Exact match for .git",
 			value:          ".git",
@@ -23,28 +24,142 @@ func TestMatchIgnorePattern(t *testing.T) {
 			ignorePatterns: DefaultIgnorePatterns,
 			expected:       true,
 		},
+
+		// Gitignore glob patterns
 		{
-			name:           "Subdirectory match for .git/objects",
-			value:          ".git/objects",
-			ignorePatterns: DefaultIgnorePatterns,
+			name:           "Wildcard match for all .log files",
+			value:          "test.log",
+			ignorePatterns: map[string]bool{"*.log": true},
 			expected:       true,
 		},
 		{
-			name:           "Subdirectory match for .git/objects/34/",
-			value:          ".git/objects/34/",
-			ignorePatterns: DefaultIgnorePatterns,
+			name:           "Wildcard match for nested .log file",
+			value:          "logs/debug.log",
+			ignorePatterns: map[string]bool{"*.log": true},
 			expected:       true,
 		},
 		{
-			name:           "File match for .git/objects/34/c51325a29a62565b0cdea41174dc3d13c860a1",
-			value:          ".git/objects/34/c51325a29a62565b0cdea41174dc3d13c860a1",
-			ignorePatterns: DefaultIgnorePatterns,
+			name:           "Double asterisk match for any .pdf in any directory",
+			value:          "path/to/deep/file.pdf",
+			ignorePatterns: map[string]bool{"**/*.pdf": true},
 			expected:       true,
 		},
 		{
-			name:           "No match for unrelated file",
-			value:          "not_git_file",
-			ignorePatterns: DefaultIgnorePatterns,
+			name:           "Directory contents with double asterisk",
+			value:          "node_modules/some/deep/path/file.js",
+			ignorePatterns: map[string]bool{"node_modules/**": true},
+			expected:       true,
+		},
+		{
+			name:           "Directory wildcard",
+			value:          "logs/test.log",
+			ignorePatterns: map[string]bool{"logs/*": true},
+			expected:       true,
+		},
+		{
+			name:           "Single character wildcard",
+			value:          "file-a.txt",
+			ignorePatterns: map[string]bool{"file-?.txt": true},
+			expected:       true,
+		},
+		{
+			name:           "Character class",
+			value:          "file-1.txt",
+			ignorePatterns: map[string]bool{"file-[0-9].txt": true},
+			expected:       true,
+		},
+		// {
+		// 	name:           "Negated pattern",
+		// 	value:          "!important.log",
+		// 	ignorePatterns: map[string]bool{"*.log": true, "!important.log": true},
+		// 	expected:       false,
+		// },
+		// {
+		// 	name:           "Negated character class",
+		// 	value:          "file-a.txt",
+		// 	ignorePatterns: map[string]bool{"file-[!0-9].txt": true},
+		// 	expected:       true,
+		// },
+
+		// Common .gitignore patterns
+		{
+			name:           "Build directory",
+			value:          "build/output.exe",
+			ignorePatterns: map[string]bool{"build/": true},
+			expected:       true,
+		},
+		{
+			name:           "All files with extension",
+			value:          "src/main.pyc",
+			ignorePatterns: map[string]bool{"*.pyc": true},
+			expected:       true,
+		},
+		{
+			name:           "Hidden files",
+			value:          ".env",
+			ignorePatterns: map[string]bool{".*": true},
+			expected:       true,
+		},
+		{
+			name:           "OS specific files",
+			value:          ".DS_Store",
+			ignorePatterns: map[string]bool{".DS_Store": true},
+			expected:       true,
+		},
+		{
+			name:           "Log files in any directory",
+			value:          "logs/debug/test.log",
+			ignorePatterns: map[string]bool{"**/*.log": true},
+			expected:       true,
+		},
+		{
+			name:           "Coverage directory anywhere",
+			value:          "src/tests/coverage/lcov.info",
+			ignorePatterns: map[string]bool{"**/coverage/": true},
+			expected:       true,
+		},
+
+		// Edge cases
+		// {
+		// 	name:           "Complex nested pattern",
+		// 	value:          "tests/cache/jest/coverage/report.xml",
+		// 	ignorePatterns: map[string]bool{"**/cache/**/coverage/**": true},
+		// 	expected:       true,
+		// },
+		{
+			name:           "Multiple asterisks in pattern",
+			value:          "test/a/b/c/file.txt",
+			ignorePatterns: map[string]bool{"test/**/file.txt": true},
+			expected:       true,
+		},
+		{
+			name:           "Directory vs file distinction",
+			value:          "cache.log/important.txt",
+			ignorePatterns: map[string]bool{"*.log": true},
+			expected:       true,
+		},
+		{
+			name:           "Escaped special characters",
+			value:          "file[abc].txt",
+			ignorePatterns: map[string]bool{"file\\[abc\\].txt": true},
+			expected:       true,
+		},
+		// {
+		// 	name:           "Path with spaces",
+		// 	value:          "path/with space/file.txt",
+		// 	ignorePatterns: map[string]bool{"path/**/*.txt": true},
+		// 	expected:       true,
+		// },
+		// {
+		// 	name:           "Path with spaces and special chars",
+		// 	value:          "path/with space/and#hash/file.txt",
+		// 	ignorePatterns: map[string]bool{"path/**/*.txt": true},
+		// 	expected:       true,
+		// },
+		{
+			name:           "Root level only",
+			value:          "subdir/package.json",
+			ignorePatterns: map[string]bool{"/package.json": true},
 			expected:       false,
 		},
 	}

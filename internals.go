@@ -137,23 +137,82 @@ var DefaultIgnorePatterns = map[string]bool{
 }
 
 func MatchIgnorePattern(value string, ignorePatterns map[string]bool) bool {
-	for pattern, _ := range ignorePatterns {
-		if strings.HasSuffix(pattern, "/") {
-			// Directory pattern: check if name matches or is within the directory
-			if strings.HasPrefix(value, strings.TrimSuffix(pattern, "/")) {
+	// Normalize path separators
+	value = filepath.ToSlash(value)
+
+	for pattern, ignore := range ignorePatterns {
+		if ignore && matchPattern(value, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchPattern(value, pattern string) bool {
+	// Normalize path separators so that all are "/"
+	value = filepath.ToSlash(value)
+	pattern = filepath.ToSlash(pattern)
+
+	// 1) Handle patterns starting with "**/" first (e.g. "**/coverage/")
+	if strings.HasPrefix(pattern, "**/") {
+		// Trim the leading "**/"
+		pattern = strings.TrimPrefix(pattern, "**/")
+		// Split the value into path segments
+		parts := strings.Split(value, "/")
+		// Try matching `pattern` against every possible subpath
+		for i := range parts {
+			subpath := strings.Join(parts[i:], "/")
+			if matchPattern(subpath, pattern) {
 				return true
 			}
-		} else if strings.HasSuffix(pattern, "/*") {
-			// Directory contents pattern: match files and subdirectories within
-			base := strings.TrimSuffix(pattern, "/*")
-			if strings.HasPrefix(value, base) {
-				return true
-			}
-		} else {
-			// Exact match or prefix match
-			if strings.HasPrefix(value, pattern) {
-				return true
-			}
+		}
+		return false
+	}
+
+	// 2) Handle directory-specific patterns (those that end with "/")
+	//    e.g. "src/foo/"
+	if strings.HasSuffix(pattern, "/") {
+		// Remove the trailing "/"
+		pattern = strings.TrimSuffix(pattern, "/")
+		// Match if value is exactly "pattern" or starts with "pattern/"
+		return value == pattern || strings.HasPrefix(value, pattern+"/")
+	}
+
+	// 3) Handle patterns with "**" in the middle, e.g. "src/**/foo"
+	if strings.Contains(pattern, "**") {
+		segments := strings.SplitN(pattern, "**", 2)
+		// We only split once: ["src/", "/foo"] for "src/**/foo"
+		prefix := segments[0]
+		suffix := segments[1]
+
+		// If value doesn't start with prefix, it's an immediate miss
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+
+		// Remove prefix and check if remainder ends with suffix
+		remainder := value[len(prefix):]
+		return strings.HasSuffix(remainder, suffix)
+	}
+
+	// 4) Handle single-segment wildcards (no slashes), e.g. "*.go"
+	if !strings.Contains(pattern, "/") && strings.Contains(pattern, "*") {
+		return matchBasename(value, pattern)
+	}
+
+	// 5) Fall back to a direct pattern match
+	matched, err := filepath.Match(pattern, value)
+	return err == nil && matched
+}
+
+func matchBasename(value, pattern string) bool {
+	// Match against any component of the path
+	parts := strings.Split(value, "/")
+	for _, part := range parts {
+		matched, err := filepath.Match(pattern, part)
+		if err == nil && matched {
+			return true
 		}
 	}
 	return false
