@@ -1,4 +1,4 @@
-package goast
+package grepast
 
 import (
 	"bufio"
@@ -75,8 +75,8 @@ func init() {
 	}
 }
 
-// getLanguageFromFileName maps file name to tree-sitter Language instances
-func getLanguageFromFileName(path string) (*sitter.Language, error) {
+// GetLanguageFromFileName maps file name to tree-sitter Language instances
+func GetLanguageFromFileName(path string) (*sitter.Language, error) {
 	if strings.EqualFold(filepath.Base(path), "Dockerfile") {
 		return nil, nil
 	}

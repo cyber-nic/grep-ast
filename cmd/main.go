@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	goast "github.com/cyber-nic/grep-ast-go"
+	grepast "github.com/cyber-nic/grep-ast-go"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 			return nil
 		}
 		// Skip files that match the ignore patterns
-		if goast.MatchIgnorePattern(path, goast.DefaultIgnorePatterns) {
+		if grepast.MatchIgnorePattern(path, grepast.DefaultIgnorePatterns) {
 			return nil
 		}
 
@@ -69,7 +69,7 @@ func parseAndGrep(filePath, search string) error {
 	}
 
 	// Attempt to create a TreeContext. Non-Go files may fail.
-	tc, err := goast.NewTreeContext(filePath, source, goast.TreeContextOptions{
+	tc, err := grepast.NewTreeContext(filePath, source, grepast.TreeContextOptions{
 		Color:                    true,
 		Verbose:                  false,
 		ShowLineNumber:           true,

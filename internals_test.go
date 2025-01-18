@@ -1,4 +1,4 @@
-package goast
+package grepast
 
 import (
 	"testing"
