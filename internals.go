@@ -8,30 +8,31 @@ import (
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
-	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
-	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+	sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
+	sitter_c_sharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	sitter_css "github.com/tree-sitter/tree-sitter-css/bindings/go"
+	sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
+	sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
+	sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
 var (
-	languageMap map[string]*sitter.Language
+	languageMap               map[string]*sitter.Language
+	ErrorUnrecognizedFiletype = fmt.Errorf("unrecognized file type")
+	ErrorUnsupportedLanguage  = fmt.Errorf("unsupported language")
 )
-
 var extensionMap = map[string]string{
-	".py":     "python",
-	".js":     "javascript",
-	".mjs":    "javascript",
-	".go":     "go",
-	".tsx":    "typescript",
-	".ts":     "typescript",
-	".jsx":    "javascript",
 	".bash":   "bash",
+	".cc":     "cpp",
+	".cl":     "commonlisp",
 	".c":      "c",
 	".cpp":    "cpp",
-	".cc":     "cpp",
 	".cs":     "c_sharp",
-	".cl":     "commonlisp",
+	".csm":    "scheme",
 	".css":    "css",
 	".el":     "elisp",
 	".ex":     "elixir",
@@ -39,20 +40,25 @@ var extensionMap = map[string]string{
 	".et":     "embedded_template",
 	".erl":    "erlang",
 	".gomod":  "gomod",
+	".go":     "go",
 	".hack":   "hack",
-	".hs":     "haskell",
 	".hcl":    "hcl",
+	".hs":     "haskell",
 	".html":   "html",
 	".java":   "java",
-	".json":   "json",
 	".jl":     "julia",
+	".js":     "javascript",
+	".json":   "json",
+	".jsx":    "javascript",
 	".kt":     "kotlin",
 	".lua":    "lua",
+	".mjs":    "javascript",
 	".mk":     "make",
-	".m":      "objc",
 	".ml":     "ocaml",
-	".pl":     "perl",
+	".m":      "objc",
 	".php":    "php",
+	".pl":     "perl",
+	".py":     "python",
 	".ql":     "ql",
 	".r":      "r",
 	".regex":  "regex",
@@ -63,31 +69,43 @@ var extensionMap = map[string]string{
 	".sql":    "sql",
 	".sqlite": "sqlite",
 	".toml":   "toml",
+	".ts":     "typescript",
+	".tsx":    "typescript",
 	".yaml":   "yaml",
 }
 
 func init() {
 	languageMap = map[string]*sitter.Language{
-		"go":         sitter.NewLanguage(tree_sitter_go.Language()),
-		"javascript": sitter.NewLanguage(tree_sitter_javascript.Language()),
-		"python":     sitter.NewLanguage(tree_sitter_python.Language()),
-		"typescript": sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript()),
+		"bash":       sitter.NewLanguage(sitter_bash.Language()),
+		"c_sharp":    sitter.NewLanguage(sitter_c_sharp.Language()),
+		"css":        sitter.NewLanguage(sitter_css.Language()),
+		"go":         sitter.NewLanguage(sitter_go.Language()),
+		"java":       sitter.NewLanguage(sitter_java.Language()),
+		"javascript": sitter.NewLanguage(sitter_javascript.Language()),
+		"html":       sitter.NewLanguage(sitter_html.Language()),
+		"python":     sitter.NewLanguage(sitter_python.Language()),
+		"typescript": sitter.NewLanguage(sitter_typescript.LanguageTypescript()),
+		"rust":       sitter.NewLanguage(sitter_rust.Language()),
 	}
 }
 
 // GetLanguageFromFileName maps file name to tree-sitter Language instances
-func GetLanguageFromFileName(path string) (*sitter.Language, error) {
+func GetLanguageFromFileName(path string) (*sitter.Language, string, error) {
 	if strings.EqualFold(filepath.Base(path), "Dockerfile") {
-		return nil, nil
+		return nil, "Dockerfile", nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
 
 	if lang, ok := extensionMap[ext]; ok {
-		return languageMap[lang], nil
+		l := languageMap[lang]
+		if l == nil {
+			return nil, "", ErrorUnsupportedLanguage
+		}
+		return l, lang, nil
 	}
 
-	return nil, fmt.Errorf("unrecognized or unsupported file type (%s): %s", path, ext)
+	return nil, "", ErrorUnrecognizedFiletype
 }
 
 // loadIgnoreList reads the ignore file and returns the list of patterns to ignore

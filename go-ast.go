@@ -51,7 +51,7 @@ type TreeContextOptions struct {
 // NewTreeContext is the Go-equivalent constructor for TreeContext.
 func NewTreeContext(filename string, source []byte, options TreeContextOptions) (*TreeContext, error) {
 	// Get the language from the filename
-	lang, err := GetLanguageFromFileName(filename)
+	lang, _, err := GetLanguageFromFileName(filename)
 	if err != nil {
 		return nil, err
 	}
