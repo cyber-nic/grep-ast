@@ -10,85 +10,89 @@ import (
 
 // TreeContext stores context about source code lines, parsing, scopes, and line-of-interest management.
 type TreeContext struct {
-	filename                 string
-	source                   []byte
-	color                    bool
-	verbose                  bool
-	lineNumber               bool
-	lastLine                 bool
-	margin                   int
-	markLOIs                 bool
-	headerMax                int
-	loiPad                   int
-	showTopOfFileParentScope bool
-	parentContext            bool
-	childContext             bool
-	lines                    []string
-	numLines                 int
-	outputLines              map[int]string
-	scopes                   []map[int]struct{}
-	header                   [][]int          // each element: [startLine, endLine]
-	nodes                    [][]*sitter.Node // tracks parse-tree nodes by start line
-	showLines                map[int]struct{}
-	linesOfInterest          map[int]struct{}
-	doneParentScopes         map[int]struct{}
+	filename                 string             // Name of the file being processed.
+	source                   []byte             // Source code content as a byte array.
+	color                    bool               // Whether to use color for highlighted output.
+	verbose                  bool               // Whether to enable verbose output for debugging.
+	lineNumber               bool               // Whether to include line numbers in the output.
+	lastLine                 bool               // Whether to always include the last line in the output.
+	margin                   int                // Number of lines to include as a margin at the top of the output.
+	markLOIs                 bool               // Whether to visually mark lines of interest (LOI).
+	headerMax                int                // Maximum number of header lines to display.
+	loiPad                   int                // Number of lines of padding around lines of interest.
+	showTopOfFileParentScope bool               // Whether to include the parent scope starting from the top of the file.
+	parentContext            bool               // Whether to include parent context in the output.
+	childContext             bool               // Whether to include child context in the output.
+	lines                    []string           // Source code split into individual lines.
+	numLines                 int                // Total number of lines in the source code (including an optional trailing newline adjustment).
+	outputLines              map[int]string     // Map of output lines, optionally with highlights.
+	scopes                   []map[int]struct{} // Tracks scope relationships by line.
+	header                   [][]int            // Each element is a slice representing [startLine, endLine] of headers.
+	nodes                    [][]*sitter.Node   // Tracks parse-tree nodes indexed by their start line.
+	showLines                map[int]struct{}   // Lines to show in the final output.
+	linesOfInterest          map[int]struct{}   // Lines explicitly marked as "lines of interest" (LOI).
+	doneParentScopes         map[int]struct{}   // Tracks parent scopes that have already been processed.
 }
 
+// TreeContextOptions specifies various options for initializing TreeContext.
 type TreeContextOptions struct {
-	Color                    bool
-	Verbose                  bool
-	ShowLineNumber           bool
-	ShowParentContext        bool
-	ShowChildContext         bool
-	ShowLastLine             bool
-	MarginPadding            int
-	MarkLinesOfInterest      bool
-	HeaderMax                int
-	ShowTopOfFileParentScope bool
-	LinesOfInterestPadding   int
+	Color                    bool // Use colored output for matches or highlights.
+	Verbose                  bool // Enable verbose mode for additional debugging or insights.
+	ShowLineNumber           bool // Include line numbers in the output.
+	ShowParentContext        bool // Show the parent scope of lines of interest in the output.
+	ShowChildContext         bool // Show the child scope of lines of interest in the output.
+	ShowLastLine             bool // Always include the last line in the output.
+	MarginPadding            int  // Number of lines to add as a margin at the top of the output.
+	MarkLinesOfInterest      bool // Visually mark lines of interest (LOI) in the output.
+	HeaderMax                int  // Maximum number of header lines to display.
+	ShowTopOfFileParentScope bool // Always include the top-most parent scope from the file's beginning.
+	LinesOfInterestPadding   int  // Number of lines of padding around each line of interest.
 }
 
 // NewTreeContext is the Go-equivalent constructor for TreeContext.
+// It initializes the context for analyzing and working with source code.
 func NewTreeContext(filename string, source []byte, options TreeContextOptions) (*TreeContext, error) {
-	// Get the language from the filename
+	// Get the language from the filename.
+	// Determines the programming language to use for parsing based on the file extension.
 	lang, _, err := GetLanguageFromFileName(filename)
 	if err != nil {
-		return nil, err
+		return nil, err // Return an error if the file type cannot be recognized.
 	}
 
-	// Return an error if the language is not supported
+	// Return an error if the language is not supported.
 	if lang == nil {
 		return nil, fmt.Errorf("unrecognized or unsupported file type (%s)", filename)
 	}
 
-	// Initialize Tree-sitter parser
+	// Initialize Tree-sitter parser for parsing source code into an abstract syntax tree (AST).
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang) // Change to appropriate language parser
+	parser.SetLanguage(lang) // Set the parser's language to match the file type.
 
-	// Parse the source code
+	// Parse the source code into a syntax tree.
 	tree := parser.Parse(source, nil)
 
-	// Get the root node
+	// Retrieve the root node of the syntax tree for traversal.
 	rootNode := tree.RootNode()
 
-	// Split lines
+	// Split the source code into lines for easier processing.
 	lines := strings.Split(string(source), "\n")
 	numLines := len(lines)
 	if len(source) > 0 && source[len(source)-1] == '\n' {
-		// Adjust if there's a trailing newline, so the python version's "len + 1" logic is matched
+		// Adjust for a trailing newline, aligning with Python's len+1 logic.
 		numLines += 0
 	}
 
-	// Initialize scopes and headers
-	scopes := make([]map[int]struct{}, numLines+1) // +1 to mimic python’s len+1 usage
-	header := make([][]int, numLines+1)
-	nodes := make([][]*sitter.Node, numLines+1)
+	// Initialize scopes, headers, and nodes for tracking relationships and parsing metadata.
+	scopes := make([]map[int]struct{}, numLines+1) // +1 to mimic Python’s len+1 logic.
+	header := make([][]int, numLines+1)            // Track start and end lines for each header.
+	nodes := make([][]*sitter.Node, numLines+1)    // Track AST nodes by their starting line.
 	for i := 0; i <= numLines; i++ {
 		scopes[i] = make(map[int]struct{})
 		header[i] = []int{0, 0}
 		nodes[i] = []*sitter.Node{}
 	}
 
+	// Create and populate the TreeContext object with initialized values.
 	tc := &TreeContext{
 		filename:                 filename,
 		source:                   source,
@@ -104,7 +108,7 @@ func NewTreeContext(filename string, source []byte, options TreeContextOptions) 
 		loiPad:                   options.LinesOfInterestPadding,
 		showTopOfFileParentScope: options.ShowTopOfFileParentScope,
 		lines:                    lines,
-		numLines:                 numLines + 1,
+		numLines:                 numLines + 1, // Account for potential trailing newlines.
 		outputLines:              make(map[int]string),
 		scopes:                   scopes,
 		header:                   header,
@@ -114,12 +118,13 @@ func NewTreeContext(filename string, source []byte, options TreeContextOptions) 
 		doneParentScopes:         make(map[int]struct{}),
 	}
 
-	// Walk parse tree
+	// Walk through the parse tree to populate headers, scopes, and nodes.
 	tc.walkTree(rootNode, 0)
 
-	// Post-process scopes / headers
+	// Perform additional processing on scopes and headers after tree traversal.
 	tc.postWalkProcessing()
 
+	// Return the initialized TreeContext object.
 	return tc, nil
 }
 
@@ -204,14 +209,14 @@ func (tc *TreeContext) AddContext() {
 		return
 	}
 
-	// ensure we have linesOfInterest in showLines
+	// Ensure all linesOfInterest are in showLines
 	for line := range tc.linesOfInterest {
 		tc.showLines[line] = struct{}{}
 	}
 
-	// add padding lines around each LOI
+	// Add padding lines around each LOI
 	if tc.loiPad > 0 {
-		toAdd := []int{}
+		var toAdd []int
 		for line := range tc.showLines {
 			start := line - tc.loiPad
 			end := line + tc.loiPad
@@ -227,39 +232,44 @@ func (tc *TreeContext) AddContext() {
 		}
 	}
 
-	// optionally add bottom line (plus parent context)
+	// Optionally add bottom line (plus parent context)
 	if tc.lastLine {
 		bottomLine := tc.numLines - 2
 		tc.showLines[bottomLine] = struct{}{}
 		tc.addParentScopes(bottomLine)
 	}
 
-	// add parent contexts
+	// Add parent contexts
 	if tc.parentContext {
 		for i := range tc.linesOfInterest {
 			tc.addParentScopes(i)
 		}
 	}
 
-	// add child contexts
+	// Add child contexts
+	// NOTE: This is where we fix partial expansions. If you want the entire function body,
+	// you can remove or adjust the logic in addChildContext.
 	if tc.childContext {
 		for i := range tc.linesOfInterest {
 			tc.addChildContext(i)
 		}
 	}
 
-	// add top margin lines
+	// Add top margin lines
 	if tc.margin > 0 {
 		for i := 0; i < tc.margin && i < tc.numLines; i++ {
 			tc.showLines[i] = struct{}{}
 		}
 	}
 
-	// close small gaps
+	// Close small gaps between lines to produce a smoother snippet
 	tc.closeSmallGaps()
 }
 
-// addChildContext tries to show a child scope if it’s small or show partial scopes if large
+// addChildContext tries to show a child scope for the line i (e.g. function body),
+// replicating the Python logic more closely.  If the scope is small (<5 lines),
+// we reveal everything.  Otherwise, we show partial expansions by calling
+// addParentScopes(childStart) for each child, up to a max limit.
 func (tc *TreeContext) addChildContext(i int) {
 	if i < 0 || i >= len(tc.nodes) {
 		return
@@ -270,23 +280,29 @@ func (tc *TreeContext) addChildContext(i int) {
 
 	lastLine := tc.getLastLineOfScope(i)
 	size := lastLine - i
+	if size < 0 {
+		return
+	}
+
+	// If the scope is small enough, reveal everything.
 	if size < 5 {
-		for line := i; line <= lastLine; line++ {
+		for line := i; line <= lastLine && line < tc.numLines; line++ {
 			tc.showLines[line] = struct{}{}
 		}
 		return
 	}
 
-	// gather all children
+	// Gather all children for node(s) on line i, then sort by size descending.
 	children := []*sitter.Node{}
 	for _, node := range tc.nodes[i] {
 		children = append(children, tc.findAllChildren(node)...)
 	}
-
-	// sort them by (end_line-start_line) descending
 	sortNodesBySize(children)
 
 	currentlyShowing := len(tc.showLines)
+
+	// We only reveal ~10% of the larger scope, at least 5 lines, at most 25 lines,
+	// matching the Python logic.
 	maxToShow := 25
 	minToShow := 5
 	percentToShow := 0.10
@@ -297,12 +313,18 @@ func (tc *TreeContext) addChildContext(i int) {
 		computedMax = maxToShow
 	}
 
+	// For each child, we only expand up to computedMax times by revealing
+	// its parent scopes.  (Mirrors Python's "self.add_parent_scopes(child_start_line)")
 	for _, child := range children {
 		if len(tc.showLines) > currentlyShowing+computedMax {
 			break
 		}
-		childStart := child.StartPosition().Row
-		tc.addParentScopes(int(childStart))
+		childStart := int(child.StartPosition().Row)
+		// childEnd := int(child.EndPosition().Row)
+		// for line := childStart; line <= childEnd && line < tc.numLines; line++ {
+		// 	tc.showLines[line] = struct{}{}
+		// }
+		tc.addParentScopes(childStart)
 	}
 }
 
@@ -364,9 +386,10 @@ func (tc *TreeContext) closeSmallGaps() {
 	tc.showLines = closedShow
 }
 
-// Format outputs the final lines
+// Format outputs the final lines. This version prints an initial ellipsis
+// if the first line is NOT in showLines, replicating the Python code's
+// "dots = not (0 in self.show_lines)" behavior.
 func (tc *TreeContext) Format() string {
-	// If there’s nothing to show, bail early
 	if len(tc.showLines) == 0 {
 		return ""
 	}
@@ -378,13 +401,15 @@ func (tc *TreeContext) Format() string {
 		sb.WriteString("\033[0m\n")
 	}
 
-	// `printEllipsis` tracks whether we've shown a line since
-	// the last time we printed an ellipsis. Initially false.
-	var printEllipsis bool
+	// If the first line is *not* in showLines, we begin in "ellipses" mode,
+	// so we will print an ellipsis when we next skip lines.
+	_, firstLineShown := tc.showLines[0]
+	printEllipsis := !firstLineShown
 
 	for i, line := range tc.lines {
-		if _, shouldShow := tc.showLines[i]; !shouldShow {
-			// Print ellipsis only once after the last shown line
+		_, shouldShow := tc.showLines[i]
+		if !shouldShow {
+			// Print ellipsis once after last shown line
 			if printEllipsis {
 				sb.WriteString(tc.ellipsisLine())
 				printEllipsis = false
@@ -401,7 +426,7 @@ func (tc *TreeContext) Format() string {
 			fmt.Fprintf(&sb, "%s%s\n", spacer, oline)
 		}
 
-		// Next time we skip lines, we may print an ellipsis
+		// If we skip lines after this, we want an ellipsis
 		printEllipsis = true
 	}
 

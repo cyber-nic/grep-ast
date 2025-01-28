@@ -1,9 +1,11 @@
 package grepast
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMatchIgnorePattern(t *testing.T) {
@@ -179,15 +181,6 @@ func TestMatchIgnorePattern(t *testing.T) {
 // TestGetLanguageFromFileName tests the GetLanguageFromFileName function
 func TestGetLanguageFromFileName(t *testing.T) {
 
-	mock := &sitter.Language{}
-	// Initialize some example languages for testing
-	languageMap = map[string]*sitter.Language{
-		"go":         mock,
-		"javascript": mock,
-		"python":     mock,
-		"typescript": mock,
-	}
-
 	// Test cases
 	tests := []struct {
 		name          string
@@ -234,8 +227,8 @@ func TestGetLanguageFromFileName(t *testing.T) {
 		{
 			name:          "Case-Insensitive Extension",
 			filePath:      "Style.CSS",
-			expectedLang:  "",
-			expectedError: ErrorUnrecognizedFiletype,
+			expectedLang:  "css",
+			expectedError: nil,
 		},
 		{
 			name:          "Valid TypeScript File",
@@ -267,4 +260,81 @@ func TestGetLanguageFromFileName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChildContextOutput checks that linesOfInterest plus a child scope
+// produce output similar to the Python version. In particular, we expect
+// lines outside the immediate linesOfInterest to appear because of
+// addChildContext calls, and we check that an ellipsis appears if the first
+// line is not shown.
+func TestChildContextOutput(t *testing.T) {
+
+	fmt.Println("TestChildContextOutput")
+
+	sourceCode := []byte(`
+package main
+
+import "fmt"
+
+func smallScope() {
+    // short function that should be fully shown
+    fmt.Println("short scope")
+}
+
+func largeScope() {
+    // line 1
+    // line 2
+    // line 3
+    // line 4
+    fmt.Println("bigger scope!")
+    // line 5
+    // line 6
+    // line 7
+    // line 8
+}
+
+func main() {
+    smallScope()
+    largeScope()
+}
+`)
+
+	options := TreeContextOptions{
+		Color:                    false,
+		Verbose:                  false,
+		ShowLineNumber:           true,
+		ShowParentContext:        true,
+		ShowChildContext:         true,
+		ShowLastLine:             false,
+		MarginPadding:            0,
+		MarkLinesOfInterest:      true,
+		HeaderMax:                10,
+		ShowTopOfFileParentScope: true,
+		LinesOfInterestPadding:   0,
+	}
+
+	tc, err := NewTreeContext("example.go", sourceCode, options)
+	assert.NoError(t, err)
+
+	// Suppose line 11 ("func largeScope") is a line of interest:
+	// (In zero-based indexing, that's about the 10th line after the blank lines.)
+	loi := map[int]struct{}{11: {}}
+	tc.AddLinesOfInterest(loi)
+
+	tc.AddContext()
+	out := tc.Format()
+
+	// We check that the short function is fully shown if linesOfInterest
+	// land near it, or that partial expansions happen for the largeScope.
+	// We mainly confirm that some context lines were shown around line 11,
+	// and that lines from the child scope are triggered in some form.
+	assert.True(t, strings.Contains(out, "largeScope()"), "Should contain line of interest text")
+	assert.True(t, strings.Contains(out, "fmt.Println(\"bigger scope!\")"), "Should contain child context lines")
+
+	// We also verify the initial line "package main" was omitted, which should
+	// trigger an initial ellipsis.  The first line is line 0 in zero-based indexing,
+	// and we didn't add it to showLines or the margin. So we expect "...⋮...".
+	assert.True(t, strings.Contains(out, "...⋮..."), "Should show initial ellipsis")
+
+	t.Logf("Output:\n%s", out)
 }

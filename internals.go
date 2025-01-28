@@ -2,7 +2,9 @@ package grepast
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,10 +23,10 @@ import (
 )
 
 var (
-	languageMap               map[string]*sitter.Language
 	ErrorUnrecognizedFiletype = fmt.Errorf("unrecognized file type")
 	ErrorUnsupportedLanguage  = fmt.Errorf("unsupported language")
 )
+
 var extensionMap = map[string]string{
 	".bash":   "bash",
 	".cc":     "cpp",
@@ -74,23 +76,9 @@ var extensionMap = map[string]string{
 	".yaml":   "yaml",
 }
 
-func init() {
-	languageMap = map[string]*sitter.Language{
-		"bash":       sitter.NewLanguage(sitter_bash.Language()),
-		"c_sharp":    sitter.NewLanguage(sitter_c_sharp.Language()),
-		"css":        sitter.NewLanguage(sitter_css.Language()),
-		"go":         sitter.NewLanguage(sitter_go.Language()),
-		"java":       sitter.NewLanguage(sitter_java.Language()),
-		"javascript": sitter.NewLanguage(sitter_javascript.Language()),
-		"html":       sitter.NewLanguage(sitter_html.Language()),
-		"python":     sitter.NewLanguage(sitter_python.Language()),
-		"typescript": sitter.NewLanguage(sitter_typescript.LanguageTypescript()),
-		"rust":       sitter.NewLanguage(sitter_rust.Language()),
-	}
-}
-
 // GetLanguageFromFileName maps file name to tree-sitter Language instances
 func GetLanguageFromFileName(path string) (*sitter.Language, string, error) {
+
 	if strings.EqualFold(filepath.Base(path), "Dockerfile") {
 		return nil, "Dockerfile", nil
 	}
@@ -98,11 +86,30 @@ func GetLanguageFromFileName(path string) (*sitter.Language, string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 
 	if lang, ok := extensionMap[ext]; ok {
-		l := languageMap[lang]
-		if l == nil {
+		switch lang {
+		case "bash":
+			return sitter.NewLanguage(sitter_bash.Language()), lang, nil
+		case "c_sharp":
+			return sitter.NewLanguage(sitter_c_sharp.Language()), lang, nil
+		case "css":
+			return sitter.NewLanguage(sitter_css.Language()), lang, nil
+		case "go":
+			return sitter.NewLanguage(sitter_go.Language()), lang, nil
+		case "java":
+			return sitter.NewLanguage(sitter_java.Language()), lang, nil
+		case "javascript":
+			return sitter.NewLanguage(sitter_javascript.Language()), lang, nil
+		case "html":
+			return sitter.NewLanguage(sitter_html.Language()), lang, nil
+		case "python":
+			return sitter.NewLanguage(sitter_python.Language()), lang, nil
+		case "typescript":
+			return sitter.NewLanguage(sitter_typescript.LanguageTypescript()), lang, nil
+		case "rust":
+			return sitter.NewLanguage(sitter_rust.Language()), lang, nil
+		default:
 			return nil, "", ErrorUnsupportedLanguage
 		}
-		return l, lang, nil
 	}
 
 	return nil, "", ErrorUnrecognizedFiletype
@@ -234,4 +241,14 @@ func matchBasename(value, pattern string) bool {
 		}
 	}
 	return false
+}
+
+// PrintStruct prints a struct as JSON.
+func PrintStruct(w io.Writer, t interface{}) {
+	j, _ := json.MarshalIndent(t, "", "  ")
+	fmt.Fprintln(w, string(j))
+}
+
+func PrintStructOut(t interface{}) {
+	PrintStruct(os.Stdout, t)
 }
