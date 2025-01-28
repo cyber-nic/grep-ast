@@ -411,7 +411,7 @@ func (tc *TreeContext) Format() string {
 		if !shouldShow {
 			// Print ellipsis once after last shown line
 			if printEllipsis {
-				sb.WriteString(tc.ellipsisLine())
+				sb.WriteString("⋮...\n")
 				printEllipsis = false
 			}
 			continue
@@ -431,14 +431,6 @@ func (tc *TreeContext) Format() string {
 	}
 
 	return sb.String()
-}
-
-// ellipsisLine returns "...⋮...\n" if lineNumber is on, otherwise "⋮...\n"
-func (tc *TreeContext) ellipsisLine() string {
-	if tc.lineNumber {
-		return "...⋮...\n"
-	}
-	return "⋮...\n"
 }
 
 // lineOfInterestSpacer returns "│" or "█" (with color if needed)
