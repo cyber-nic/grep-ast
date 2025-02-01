@@ -1,3 +1,5 @@
+github.com/cyber-nic/go-gitignore v0.1.0 h1:ykROg8uwNbsSgp0Tb1trp3Io2WXoL+X0cQCKda8OVlQ=
+github.com/cyber-nic/go-gitignore v0.1.0/go.mod h1:kAL18umpFAam2WO+UaxGATIcw5hABHRO/fueEV2/ob4=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/mattn/go-pointer v0.0.1 h1:n+XhsuGeVO6MEAp7xyEukFINEa+Quek5psIR/ylA6o0=

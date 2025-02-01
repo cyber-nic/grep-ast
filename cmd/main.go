@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	goignore "github.com/cyber-nic/go-gitignore"
 	grepast "github.com/cyber-nic/grep-ast"
 )
 
@@ -15,21 +16,40 @@ func main() {
 		return
 	}
 
-	rootPath := "."
 	var err error
+	rootPath := "."
 
 	// Get the search query
 	searchQuery := os.Args[1]
 
 	// Get the root path
 	if len(os.Args) == 2 {
+		// If only one argument, set rootPath to current working directory
 		rootPath, err = os.Getwd()
 		if err != nil {
-			fmt.Printf("error getting current working directory: %v", err)
+			fmt.Fprintf(os.Stderr, "error getting current working directory: %v\n", err)
 			os.Exit(1)
 		}
 	} else if len(os.Args) == 3 {
-		rootPath = os.Args[2]
+		if os.Args[2] == "." {
+			// Convert "." to current working directory
+			rootPath, err = os.Getwd()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error getting current working directory: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			rootPath = os.Args[2]
+		}
+	}
+
+	// Get the custom ignore file path
+	customIgnoreFilePath := filepath.Join(rootPath, ".astignore")
+
+	// Load the ignore file
+	gi, err := goignore.CompileIgnoreFile(customIgnoreFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error loading ignore file: %v\n", err)
 	}
 
 	// Walk the directory
@@ -42,8 +62,9 @@ func main() {
 		if info.IsDir() {
 			return nil
 		}
+
 		// Skip files that match the ignore patterns
-		if grepast.MatchIgnorePattern(path, grepast.DefaultIgnorePatterns) {
+		if gi.MatchesPath(path) {
 			return nil
 		}
 

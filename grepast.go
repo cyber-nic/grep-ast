@@ -22,7 +22,7 @@ type TreeContext struct {
 	loiPad                   int                // Number of lines of padding around lines of interest.
 	showTopOfFileParentScope bool               // Whether to include the parent scope starting from the top of the file.
 	parentContext            bool               // Whether to include parent context in the output.
-	childContext             bool               // Whether to include child context in the output.
+	showChildContext         bool               // Whether to include child context in the output.
 	lines                    []string           // Source code split into individual lines.
 	numLines                 int                // Total number of lines in the source code (including an optional trailing newline adjustment).
 	outputLines              map[int]string     // Map of output lines, optionally with highlights.
@@ -37,16 +37,16 @@ type TreeContext struct {
 // TreeContextOptions specifies various options for initializing TreeContext.
 type TreeContextOptions struct {
 	Color                    bool // Use colored output for matches or highlights.
-	Verbose                  bool // Enable verbose mode for additional debugging or insights.
-	ShowLineNumber           bool // Include line numbers in the output.
-	ShowParentContext        bool // Show the parent scope of lines of interest in the output.
-	ShowChildContext         bool // Show the child scope of lines of interest in the output.
-	ShowLastLine             bool // Always include the last line in the output.
+	HeaderMax                int  // Maximum number of header lines to display.
+	LinesOfInterestPadding   int  // Number of lines of padding around each line of interest.
 	MarginPadding            int  // Number of lines to add as a margin at the top of the output.
 	MarkLinesOfInterest      bool // Visually mark lines of interest (LOI) in the output.
-	HeaderMax                int  // Maximum number of header lines to display.
+	ShowChildContext         bool // Show the child scope of lines of interest in the output.
+	ShowLastLine             bool // Always include the last line in the output.
+	ShowLineNumber           bool // Include line numbers in the output.
+	ShowParentContext        bool // Show the parent scope of lines of interest in the output.
 	ShowTopOfFileParentScope bool // Always include the top-most parent scope from the file's beginning.
-	LinesOfInterestPadding   int  // Number of lines of padding around each line of interest.
+	Verbose                  bool // Enable verbose mode for additional debugging or insights.
 }
 
 // NewTreeContext is the Go-equivalent constructor for TreeContext.
@@ -100,7 +100,7 @@ func NewTreeContext(filename string, source []byte, options TreeContextOptions) 
 		verbose:                  options.Verbose,
 		lineNumber:               options.ShowLineNumber,
 		parentContext:            options.ShowParentContext,
-		childContext:             options.ShowChildContext,
+		showChildContext:         options.ShowChildContext,
 		lastLine:                 options.ShowLastLine,
 		margin:                   options.MarginPadding,
 		markLOIs:                 options.MarkLinesOfInterest,
@@ -249,7 +249,7 @@ func (tc *TreeContext) AddContext() {
 	// Add child contexts
 	// NOTE: This is where we fix partial expansions. If you want the entire function body,
 	// you can remove or adjust the logic in addChildContext.
-	if tc.childContext {
+	if tc.showChildContext {
 		for i := range tc.linesOfInterest {
 			tc.addChildContext(i)
 		}
@@ -266,10 +266,9 @@ func (tc *TreeContext) AddContext() {
 	tc.closeSmallGaps()
 }
 
-// addChildContext tries to show a child scope for the line i (e.g. function body),
-// replicating the Python logic more closely.  If the scope is small (<5 lines),
-// we reveal everything.  Otherwise, we show partial expansions by calling
-// addParentScopes(childStart) for each child, up to a max limit.
+// addChildContext tries to show a child scope for the line i (e.g. function body)
+// If the scope is small (<5 lines) everything is revealed.  Otherwise, partial expansions
+// is added by calling addParentScopes(childStart) for each child, up to a max limit.
 func (tc *TreeContext) addChildContext(i int) {
 	if i < 0 || i >= len(tc.nodes) {
 		return
@@ -320,10 +319,10 @@ func (tc *TreeContext) addChildContext(i int) {
 			break
 		}
 		childStart := int(child.StartPosition().Row)
-		// childEnd := int(child.EndPosition().Row)
-		// for line := childStart; line <= childEnd && line < tc.numLines; line++ {
-		// 	tc.showLines[line] = struct{}{}
-		// }
+		childEnd := int(child.EndPosition().Row)
+		for line := childStart; line <= childEnd && line < tc.numLines; line++ {
+			tc.showLines[line] = struct{}{}
+		}
 		tc.addParentScopes(childStart)
 	}
 }

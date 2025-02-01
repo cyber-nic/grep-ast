@@ -3,6 +3,7 @@
 
 # git
 .git/
+.git/
 
 # python
 .venv/
@@ -16,3 +17,7 @@ dist/
 *.log
 
 grep-ast
+
+# test
+cover.out
+coverage.out
