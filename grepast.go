@@ -3,6 +3,7 @@ package grepast
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -14,8 +15,8 @@ type TreeContext struct {
 	source                   []byte             // Source code content as a byte array.
 	color                    bool               // Whether to use color for highlighted output.
 	verbose                  bool               // Whether to enable verbose output for debugging.
-	lineNumber               bool               // Whether to include line numbers in the output.
-	lastLine                 bool               // Whether to always include the last line in the output.
+	showLineNumber           bool               // Whether to include line numbers in the output.
+	showLastLine             bool               // Whether to always include the larger context's last line in the output.
 	margin                   int                // Number of lines to include as a margin at the top of the output.
 	markLOIs                 bool               // Whether to visually mark lines of interest (LOI).
 	headerMax                int                // Maximum number of header lines to display.
@@ -42,7 +43,7 @@ type TreeContextOptions struct {
 	MarginPadding            int  // Number of lines to add as a margin at the top of the output.
 	MarkLinesOfInterest      bool // Visually mark lines of interest (LOI) in the output.
 	ShowChildContext         bool // Show the child scope of lines of interest in the output.
-	ShowLastLine             bool // Always include the last line in the output.
+	ShowLastLine             bool // Always include the overall context's last line in the output.
 	ShowLineNumber           bool // Include line numbers in the output.
 	ShowParentContext        bool // Show the parent scope of lines of interest in the output.
 	ShowTopOfFileParentScope bool // Always include the top-most parent scope from the file's beginning.
@@ -76,17 +77,16 @@ func NewTreeContext(filename string, source []byte, options TreeContextOptions) 
 
 	// Split the source code into lines for easier processing.
 	lines := strings.Split(string(source), "\n")
+
+	// Determine the total number of lines
 	numLines := len(lines)
-	if len(source) > 0 && source[len(source)-1] == '\n' {
-		// Adjust for a trailing newline, aligning with Python's len+1 logic.
-		numLines += 0
-	}
 
 	// Initialize scopes, headers, and nodes for tracking relationships and parsing metadata.
-	scopes := make([]map[int]struct{}, numLines+1) // +1 to mimic Python’s len+1 logic.
-	header := make([][]int, numLines+1)            // Track start and end lines for each header.
-	nodes := make([][]*sitter.Node, numLines+1)    // Track AST nodes by their starting line.
-	for i := 0; i <= numLines; i++ {
+	scopes := make([]map[int]struct{}, numLines)
+	header := make([][]int, numLines)         // Track start and end lines for each header.
+	nodes := make([][]*sitter.Node, numLines) // Track AST nodes by their starting line.
+
+	for i := 0; i <= numLines-1; i++ {
 		scopes[i] = make(map[int]struct{})
 		header[i] = []int{0, 0}
 		nodes[i] = []*sitter.Node{}
@@ -98,17 +98,17 @@ func NewTreeContext(filename string, source []byte, options TreeContextOptions) 
 		source:                   source,
 		color:                    options.Color,
 		verbose:                  options.Verbose,
-		lineNumber:               options.ShowLineNumber,
+		showLineNumber:           options.ShowLineNumber,
 		parentContext:            options.ShowParentContext,
 		showChildContext:         options.ShowChildContext,
-		lastLine:                 options.ShowLastLine,
+		showLastLine:             options.ShowLastLine,
 		margin:                   options.MarginPadding,
 		markLOIs:                 options.MarkLinesOfInterest,
 		headerMax:                options.HeaderMax,
 		loiPad:                   options.LinesOfInterestPadding,
 		showTopOfFileParentScope: options.ShowTopOfFileParentScope,
 		lines:                    lines,
-		numLines:                 numLines + 1, // Account for potential trailing newlines.
+		numLines:                 numLines,
 		outputLines:              make(map[int]string),
 		scopes:                   scopes,
 		header:                   header,
@@ -135,7 +135,7 @@ func (tc *TreeContext) postWalkProcessing() {
 
 	if tc.verbose {
 		// find the maximum width for printing scopes
-		for i := 0; i < tc.numLines-1; i++ {
+		for i := 0; i < tc.numLines; i++ {
 			scopeStr := fmt.Sprintf("%v", mapKeysSorted(tc.scopes[i]))
 			if len(scopeStr) > scopeWidth {
 				scopeWidth = len(scopeStr)
@@ -161,7 +161,7 @@ func (tc *TreeContext) postWalkProcessing() {
 			tc.header[i] = []int{headStart, headEnd}
 		}
 
-		if tc.verbose && i < tc.numLines-1 {
+		if tc.verbose && i < tc.numLines {
 			scopeStr := fmt.Sprintf("%v", mapKeysSorted(tc.scopes[i]))
 			if i < len(tc.lines) {
 				lineStr := tc.lines[i]
@@ -233,8 +233,8 @@ func (tc *TreeContext) AddContext() {
 	}
 
 	// Optionally add bottom line (plus parent context)
-	if tc.lastLine {
-		bottomLine := tc.numLines - 2
+	if tc.showLastLine {
+		bottomLine := tc.numLines - 1
 		tc.showLines[bottomLine] = struct{}{}
 		tc.addParentScopes(bottomLine)
 	}
@@ -338,50 +338,124 @@ func (tc *TreeContext) findAllChildren(node *sitter.Node) []*sitter.Node {
 	return out
 }
 
-// getLastLineOfScope finds the maximum end_line for nodes that start on line i
-func (tc *TreeContext) getLastLineOfScope(i int) int {
-	if i < 0 || i >= len(tc.nodes) || len(tc.nodes[i]) == 0 {
-		return i
-	}
-	lastLine := 0
-	for _, node := range tc.nodes[i] {
-		if int(node.EndPosition().Row) > lastLine {
-			lastLine = int(node.EndPosition().Row)
-		}
-	}
-	return lastLine
+type scopeBoundry struct {
+	start int
+	end   int
 }
 
-// closeSmallGaps closes single-line gaps.
-func (tc *TreeContext) closeSmallGaps() {
-	closedShow := make(map[int]struct{}, len(tc.showLines))
-	for k := range tc.showLines {
-		closedShow[k] = struct{}{}
+// getScopeBoundry returns all the lines belonging to the scope that starts at line i.
+func (tc *TreeContext) getScopeBoundry(i int) scopeBoundry {
+	// Check if index is out of range or if no nodes exist at the given line.
+	if i < 0 || i >= len(tc.nodes) || len(tc.nodes[i]) == 0 {
+		return scopeBoundry{start: i, end: i} // No valid nodes, return the original line.
 	}
 
-	sortedShow := mapKeysSorted(tc.showLines)
+	lastLine := i // Initialize last line to the starting line instead of 0.
 
-	// fill i+1 if i and i+2 are present
-	for i := 0; i < len(sortedShow)-1; i++ {
-		curr := sortedShow[i]
-		next := sortedShow[i+1]
-		if next-curr == 2 {
-			closedShow[curr+1] = struct{}{}
-		}
-	}
+	// Iterate over all nodes that start on line i. Work backwards to find the last line.
+	for startLine := i; startLine >= 0; startLine-- {
 
-	// pick up adjacent blank lines
-	for i, line := range tc.lines {
-		if _, ok := closedShow[i]; ok {
-			if strings.TrimSpace(line) != "" && i < tc.numLines-2 {
-				// check if next line is blank
-				if len(tc.lines) > i+1 && strings.TrimSpace(tc.lines[i+1]) == "" {
-					closedShow[i+1] = struct{}{}
+		// Look at every node that started on that line
+		for _, node := range tc.nodes[startLine] {
+			s := int(node.StartPosition().Row)
+			e := int(node.EndPosition().Row)
+
+			// fmt.Printf("%d : %d-%d - %s\n", i, s, e, node.Utf8Text(tc.source))
+
+			// Confirm i is actually inside this node's range
+			if i >= s && i <= e {
+				if e > lastLine {
+					return scopeBoundry{start: s, end: e}
 				}
 			}
 		}
 	}
 
+	return scopeBoundry{start: i, end: i}
+}
+
+// getLastLineOfScope finds the last line number of a code block starting at line i.
+// It iterates over all syntax tree nodes on line i and determines the maximum end line.
+func (tc *TreeContext) getLastLineOfScope(i int) int {
+	// Check if index is out of range or if no nodes exist at the given line.
+	if i < 0 || i >= len(tc.nodes) || len(tc.nodes[i]) == 0 {
+		return i // No valid nodes, return the original line.
+	}
+
+	lastLine := i // Initialize last line to the starting line instead of 0.
+
+	// Iterate over all nodes that start on line i. Work backwards to find the last line.
+	for startLine := i; startLine >= 0; startLine-- {
+
+		// Look at every node that started on that line
+		for _, node := range tc.nodes[startLine] {
+			s := int(node.StartPosition().Row)
+			e := int(node.EndPosition().Row)
+
+			// fmt.Printf("%d-%d - %s\n", s, e, node.Utf8Text(tc.source))
+
+			// Confirm i is actually inside this node's range
+			if i >= s && i <= e {
+				if e > lastLine {
+					return e
+				}
+			}
+		}
+	}
+
+	return lastLine
+}
+
+// closeSmallGaps attempts to fill in small gaps in the displayed lines.
+// It performs two key tasks:
+// 1. Closes single-line gaps between visible lines (i.e., fills i+1 if i and i+2 are present).
+// 2. Includes adjacent blank lines when the previous line is visible.
+func (tc *TreeContext) closeSmallGaps() {
+	// Create a new map to store the updated set of visible lines.
+	// This starts as a copy of tc.showLines.
+	closedShow := make(map[int]struct{}, len(tc.showLines))
+	for k := range tc.showLines {
+		closedShow[k] = struct{}{}
+	}
+
+	// Extract and sort the keys (line numbers) from the showLines map.
+	// This allows sequential processing of the visible lines.
+	sortedShow := mapKeysSorted(tc.showLines)
+
+	last := len(sortedShow) - 1
+
+	// Pass 1: Fill in single-line gaps.
+	// If two consecutive visible lines have exactly one line between them (i.e., `i` and `i+2` exist),
+	// mark the middle line (`i+1`) as visible.
+	for i := 0; i < last; i++ {
+		curr := sortedShow[i]
+		next := sortedShow[i+1]
+
+		// skip trailing empty lines
+		if next == last && strings.TrimSpace(tc.lines[next]) == "" {
+			continue
+		}
+		if next-curr == 2 {
+			closedShow[curr+1] = struct{}{}
+		}
+	}
+
+	// // Pass 2: Include blank lines that are adjacent to visible lines.
+	// // If a visible line contains non-whitespace content and the next line is blank,
+	// // mark the blank line as visible.
+	// for i, line := range tc.lines {
+	// 	if _, ok := closedShow[i]; ok {
+	// 		// Ensure the current line is non-empty and within valid bounds.
+	// 		if strings.TrimSpace(line) != "" && i < tc.numLines-1 {
+	// 			// If the next line is blank, mark it as visible.
+	// 			if len(tc.lines) > i+1 && strings.TrimSpace(tc.lines[i+1]) == "" {
+	// 				closedShow[i+1] = struct{}{}
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// Update the showLines map with the modified set of visible lines.
 	tc.showLines = closedShow
 }
 
@@ -419,7 +493,7 @@ func (tc *TreeContext) Format() string {
 		// Show the line
 		spacer := tc.lineOfInterestSpacer(i)
 		oline := tc.highlightedOrOriginalLine(i, line)
-		if tc.lineNumber {
+		if tc.showLineNumber {
 			fmt.Fprintf(&sb, "%3d%s%s\n", i+1, spacer, oline)
 		} else {
 			fmt.Fprintf(&sb, "%s%s\n", spacer, oline)
@@ -451,33 +525,60 @@ func (tc *TreeContext) highlightedOrOriginalLine(i int, original string) string 
 	return original
 }
 
-// addParentScopes recursively shows lines for parent scopes
+// addParentScopes recursively marks lines for parent scopes as visible.
+// This ensures that when a line belongs to a scope, its parent context is also shown.
 func (tc *TreeContext) addParentScopes(i int) {
+	// Boundary check: Ensure i is within valid range
 	if i < 0 || i >= len(tc.scopes) {
 		return
 	}
+
+	// If this scope has already been processed, avoid redundant work.
 	if _, done := tc.doneParentScopes[i]; done {
 		return
 	}
-	tc.doneParentScopes[i] = struct{}{}
+	tc.doneParentScopes[i] = struct{}{} // Mark this index as processed.
 
-	// for each scope that starts at line_num
+	// Iterate over all scope start line numbers at index i.
 	for lineNum := range tc.scopes[i] {
+		// Retrieve the scope header (expected to be a slice of at least two elements).
 		headerSlice := tc.header[lineNum]
-		if len(headerSlice) >= 2 {
-			headStart := headerSlice[0]
-			headEnd := headerSlice[1]
-			if headStart > 0 || tc.showTopOfFileParentScope {
-				for ln := headStart; ln < headEnd && ln < tc.numLines; ln++ {
-					tc.showLines[ln] = struct{}{}
-				}
-			}
-			// optionally add last line
-			if tc.lastLine {
-				lastLine := tc.getLastLineOfScope(lineNum)
-				tc.addParentScopes(lastLine)
+
+		if len(headerSlice) < 2 {
+			// **Potential Issue:** headerSlice does not have at least 2 elements.
+			// This may result in an **index out of range** error or unintended behavior.
+			// If this happens, consider logging or handling the missing header case.
+		}
+
+		headStart := headerSlice[0] // First line of the header
+		headEnd := headerSlice[1]   // Last line of the header
+
+		// Skip if the header start is at the beginning of the file.
+		if headStart == 0 {
+			continue
+		}
+
+		// Show lines within the header if either:
+		// - headStart is non-zero (ensuring it's part of a meaningful scope)
+		// - tc.showTopOfFileParentScope is enabled (forcing top-of-file scopes to be shown)
+		if headStart > 0 || tc.showTopOfFileParentScope {
+			for ln := headStart; ln < headEnd && ln < tc.numLines; ln++ {
+				tc.showLines[ln] = struct{}{} // Mark lines in the header as visible.
 			}
 		}
+
+		// If the `showLastLine` flag is enabled, determine and include the last line of the scope.
+		lines := tc.getScopeBoundry(lineNum) // Get last line of current scope.
+		if lines.end == lineNum {
+			continue // Skip if the last line is the same as the current line.
+		}
+
+		// Mark lines
+		for ln := lines.start; ln <= lines.end && ln < tc.numLines; ln++ {
+			tc.showLines[ln] = struct{}{}
+		}
+		// fmt.Printf("%d-%d : %v\n", lines.start, lines.end, tc.showLines)
+
 	}
 }
 
@@ -549,15 +650,21 @@ func mapKeysSorted(m map[int]struct{}) []int {
 	return out
 }
 
-// sortNodesBySize sorts nodes by (EndLine-StartLine) descending.
+// nodeSize calculates the size of a node based on the row difference.
+func nodeSize(start, end uint) int {
+	return int(end) - int(start)
+}
+
+// sortBySize sorts a slice of items by their computed size in descending order.
+func sortBySize[T any](items []T, getSize func(T) int) {
+	sort.Slice(items, func(i, j int) bool {
+		return getSize(items[j]) > getSize(items[i])
+	})
+}
+
+// sortNodesBySize sorts nodes by (EndLine - StartLine) in descending order.
 func sortNodesBySize(nodes []*sitter.Node) {
-	for i := 0; i < len(nodes); i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			sizeI := int(nodes[i].EndPosition().Row) - int(nodes[i].StartPosition().Row)
-			sizeJ := int(nodes[j].EndPosition().Row) - int(nodes[j].StartPosition().Row)
-			if sizeJ > sizeI {
-				nodes[i], nodes[j] = nodes[j], nodes[i]
-			}
-		}
-	}
+	sortBySize(nodes, func(n *sitter.Node) int {
+		return nodeSize(n.StartPosition().Row, n.EndPosition().Row)
+	})
 }
