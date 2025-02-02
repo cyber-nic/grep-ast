@@ -351,8 +351,8 @@ func TestSortBySize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sortBySize(tt.input, func(item struct{ start, end uint }) int {
-				return nodeSize(item.start, item.end)
+			sortBySize(tt.input, func(item struct{ start, end uint }) uint {
+				return item.start - item.end
 			})
 			for i := range tt.input {
 				if tt.input[i] != tt.expected[i] {

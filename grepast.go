@@ -650,13 +650,8 @@ func mapKeysSorted(m map[int]struct{}) []int {
 	return out
 }
 
-// nodeSize calculates the size of a node based on the row difference.
-func nodeSize(start, end uint) int {
-	return int(end) - int(start)
-}
-
 // sortBySize sorts a slice of items by their computed size in descending order.
-func sortBySize[T any](items []T, getSize func(T) int) {
+func sortBySize[T any](items []T, getSize func(T) uint) {
 	sort.Slice(items, func(i, j int) bool {
 		return getSize(items[j]) > getSize(items[i])
 	})
@@ -664,7 +659,7 @@ func sortBySize[T any](items []T, getSize func(T) int) {
 
 // sortNodesBySize sorts nodes by (EndLine - StartLine) in descending order.
 func sortNodesBySize(nodes []*sitter.Node) {
-	sortBySize(nodes, func(n *sitter.Node) int {
-		return nodeSize(n.StartPosition().Row, n.EndPosition().Row)
+	sortBySize(nodes, func(n *sitter.Node) uint {
+		return n.StartPosition().Row - n.EndPosition().Row
 	})
 }
